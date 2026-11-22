@@ -115,11 +115,11 @@
           if (!startRes.ok) throw new Error(startData.error || "فشل بدء الرفع");
 
           status.textContent = "2/3 جاري رفع الملزمة إلى خادم الذكاء الاصطناعي...";
-          const upRes = await fetch(startData.uploadUrl, {
+          const upRes = await fetch("/.netlify/functions/upload-file", {
             method: "POST",
             headers: {
-              "X-Goog-Upload-Offset": "0",
-              "X-Goog-Upload-Command": "upload, finalize"
+              "X-Upload-Url": startData.uploadUrl,
+              "Content-Type": "application/pdf"
             },
             body: file
           });
