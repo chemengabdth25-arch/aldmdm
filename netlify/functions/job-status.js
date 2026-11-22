@@ -1,16 +1,17 @@
 import { getStore } from "@netlify/blobs";
 
-const json = (status, body) => ({
-  statusCode: status,
-  headers: {
-    "Content-Type": "application/json; charset=utf-8",
-    "Access-Control-Allow-Origin": "*"
-  },
-  body: JSON.stringify(body),
-});
+const json = (status, body) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Access-Control-Allow-Origin": "*"
+    }
+  });
 
-export async function handler(event) {
-  const jobId = event.queryStringParameters?.jobId;
+export default async (req) => {
+  const url = new URL(req.url);
+  const jobId = url.searchParams.get("jobId");
   if (!jobId) return json(400, { error: "رقم المهمة مفقود" });
 
   try {
@@ -23,4 +24,4 @@ export async function handler(event) {
   } catch (err) {
     return json(200, { status: "error", error: "خطأ في التخزين السحابي: " + err.message });
   }
-}
+};
