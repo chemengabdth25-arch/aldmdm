@@ -2,9 +2,9 @@ import { getStore } from "@netlify/blobs";
 
 const KEY = process.env.GEMINI_API_KEY;
 const MODELS = [
-  "gemini-4-argon",
-  "gemini-3.8-flash",
-  "gemini-3.5-flash-lite"
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
+  "gemini-1.5-flash"
 ];
 
 const SYSTEM_INSTRUCTION = `أنت مساعد أكاديمي متخصص لمساعدة الطلاب الجامعيين.
@@ -15,11 +15,11 @@ const SYSTEM_INSTRUCTION = `أنت مساعد أكاديمي متخصص لمسا
 
 const TASKS = {
   translate: (target) =>
-    `ترجم محتوى هذه الملزمة بالكامل إلى ${target} ترجمة أكاديمية دقيقة وطبيعية من البداية إلى النهاية دون اختصار. أعد الترجمة فقط.`,
+    `ترجم المحتوى التالي بالكامل إلى ${target} ترجمة أكاديمية دقيقة وطبيعية دون اختصار. أعد الترجمة فقط.`,
   summarize: (target) =>
-    `لخّص محتوى هذه الملزمة بالكامل بلغة ${target} في نقاط واضحة ومرتبة شاملة لكل الفصول والمفاهيم الأساسية والمصطلحات العلمية. أعد التلخيص فقط.`,
+    `لخّص المحتوى التالي بلغة ${target} في نقاط واضحة ومرتبة شاملة لكل المفاهيم الأساسية والمصطلحات العلمية. أعد التلخيص فقط.`,
   report: (target) =>
-    `حوّل محتوى هذه الملزمة إلى محتوى منظم بلغة ${target} مناسب لتقرير أكاديمي متكامل، بعناوين فرعية وفقرات متماسكة. أعد المحتوى فقط.`,
+    `اكتب تقريراً أكاديمياً متكاملاً ومنظماً باللغة ${target} حول الموضوع أو المحتوى التالي، بعناوين فرعية وفقرات متماسكة ومقدمة وخاتمة. أعد التقرير فقط.`,
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -32,7 +32,7 @@ async function waitForFileActive(fileName) {
       if (data.state === "ACTIVE") return true;
       if (data.state === "FAILED") throw new Error("فشلت معالجة ملف PDF في خوادم جوجل");
     }
-    await sleep(2000);
+    await sleep(1500);
   }
   throw new Error("استغرقت تهيئة الملف وقتاً أطول من اللازم");
 }
@@ -50,7 +50,9 @@ export async function handler(event) {
   const store = getStore("aldmdm-jobs");
 
   try {
-    await store.setJSON(jobId, { status: "processing", step: "جاري تهيئة الملزمة وقراءة الصفحات..." });
+    if (!KEY) throw new Error("مفتاح GEMINI_API_KEY غير مضبوط في إعدادات Netlify");
+
+    await store.setJSON(jobId, { status: "processing", step: "جاري تجهيز المحتوى..." });
 
     if (fileName) {
       await waitForFileActive(fileName);
@@ -69,8 +71,9 @@ export async function handler(event) {
       throw new Error("لا يوجد ملف أو نص للمعالجة");
     }
 
-    await store.setJSON(jobId, { status: "processing", step: "جاري التحليل الأكاديمي بأعلى دقة..." });
+    await store.setJSON(jobId, { status: "processing", step: "جاري التحليل وكتابة المخرجات..." });
 
+    let lastError = "";
     for (const model of MODELS) {
       try {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${KEY}`;
@@ -81,31 +84,28 @@ export async function handler(event) {
             systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
             contents: [{ role: "user", parts }],
             generationConfig: {
-              temperature: 0.2,
-              maxOutputTokens: 65536
+              temperature: 0.3,
+              maxOutputTokens: 8192
             }
           })
         });
 
+        const data = await r.json();
         if (r.ok) {
-          const data = await r.json();
           const out = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("").trim();
           if (out) {
             await store.setJSON(jobId, { status: "done", result: out, model });
             return { statusCode: 200, body: "" };
           }
+        } else {
+          lastError = data?.error?.message || `HTTP ${r.status}`;
         }
-
-        if ([429, 503].includes(r.status)) {
-          await sleep(1500);
-          continue;
-        }
-      } catch {
-        continue;
+      } catch (e) {
+        lastError = e.message;
       }
     }
 
-    throw new Error("توجد ذروة ضغط حالياً على جميع النماذج، يرجى المحاولة بعد دقيقة.");
+    throw new Error(`تعذر الإتمام: ${lastError}`);
   } catch (err) {
     await store.setJSON(jobId, { status: "error", error: err.message || "حدث خطأ أثناء المعالجة" });
     return { statusCode: 200, body: "" };
