@@ -20,7 +20,7 @@ export async function handler(event) {
       return json(200, { status: "processing", step: "جاري بدء المعالجة..." });
     }
     return json(200, data);
-  } catch {
-    return json(200, { status: "processing", step: "جاري متابعة التقدم..." });
+  } catch (err) {
+    return json(200, { status: "error", error: "خطأ في التخزين السحابي: " + err.message });
   }
 }
