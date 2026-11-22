@@ -1,385 +1,89 @@
-<!DOCTYPE html>
-<html lang="ar" dir="rtl" id="htmlTag">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>الدمدم | Al-Damdam AI</title>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-    
-    <style>
-        :root {
-            --primary: #1e3a8a;
-            --secondary: #0ea5e9;
-            --bg: #f8fafc;
-            --card: #ffffff;
-            --text: #1e293b;
-        }
-        * { box-sizing: border-box; font-family: 'Cairo', sans-serif; }
-        body {
-            background-color: var(--bg);
-            color: var(--text);
-            margin: 0;
-            padding: 0;
-            line-height: 1.6;
-        }
-        header {
-            background: linear-gradient(135deg, var(--primary), var(--secondary));
-            color: white;
-            text-align: center;
-            padding: 2.2rem 1rem 1.8rem;
-            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
-            position: relative;
-        }
-        .lang-btn {
-            position: absolute;
-            top: 15px;
-            left: 15px;
-            background: rgba(255, 255, 255, 0.2);
-            color: white;
-            border: 1px solid rgba(255, 255, 255, 0.5);
-            padding: 6px 14px;
-            border-radius: 20px;
-            cursor: pointer;
-            font-weight: 700;
-            font-size: 0.9rem;
-            backdrop-filter: blur(5px);
-            transition: 0.2s;
-        }
-        [dir="ltr"] .lang-btn {
-            left: auto;
-            right: 15px;
-        }
-        .lang-btn:hover { background: rgba(255, 255, 255, 0.35); }
-        
-        header h1 { margin: 0; font-size: 2.3rem; font-weight: 800; }
-        header p { margin: 0.5rem 0 0; opacity: 0.95; font-size: 1.05rem; }
-        
-        .container {
-            max-width: 900px;
-            margin: 1.8rem auto;
-            padding: 0 1rem;
-        }
-        .card {
-            background: var(--card);
-            border-radius: 16px;
-            padding: 1.5rem;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.05);
-            margin-bottom: 1.5rem;
-        }
-        .tabs {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 1.5rem;
-            flex-wrap: wrap;
-        }
-        .tab-btn {
-            flex: 1;
-            min-width: 130px;
-            padding: 12px;
-            border: 2px solid #e2e8f0;
-            background: white;
-            border-radius: 12px;
-            cursor: pointer;
-            font-weight: 700;
-            font-size: 0.95rem;
-            color: var(--text);
-            transition: all 0.2s;
-        }
-        .tab-btn.active {
-            background: var(--primary);
-            color: white;
-            border-color: var(--primary);
-        }
-        .upload-box {
-            border: 2px dashed var(--secondary);
-            border-radius: 12px;
-            padding: 1.3rem;
-            text-align: center;
-            background: #f0f9ff;
-            margin-bottom: 1rem;
-            cursor: pointer;
-        }
-        textarea, select {
-            width: 100%;
-            padding: 12px;
-            border: 1px solid #cbd5e1;
-            border-radius: 10px;
-            font-size: 1rem;
-            margin-top: 8px;
-            margin-bottom: 1rem;
-            background: white;
-        }
-        .action-btn {
-            background: var(--primary);
-            color: white;
-            border: none;
-            padding: 14px 28px;
-            border-radius: 10px;
-            font-size: 1.1rem;
-            font-weight: 700;
-            cursor: pointer;
-            width: 100%;
-            transition: 0.2s;
-        }
-        .action-btn:hover { background: #172554; }
-        .action-btn:disabled { background: #94a3b8; cursor: not-allowed; }
-        
-        .pdf-btn {
-            background: #059669;
-            margin-top: 1rem;
-        }
-        .pdf-btn:hover { background: #047857; }
+const MODELS = [
+  "gemini-2.5-flash",
+  "gemini-2.0-flash"
+];
 
-        #result-area {
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-radius: 12px;
-            padding: 1.5rem;
-            margin-top: 1.5rem;
-            white-space: pre-wrap;
+async function fetchWithTimeout(url, options, timeoutMs = 9000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(id);
+  }
+}
+
+export async function handler(event) {
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, body: "Method Not Allowed" };
+  }
+
+  try {
+    const { prompt, systemInstruction } = JSON.parse(event.body);
+    const apiKey = process.env.GEMINI_API_KEY;
+
+    if (!apiKey) {
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: "مفتاح API غير مضبوط في إعدادات السيرفر" })
+      };
+    }
+
+    let lastError = "تعذر الاتصال بخوادم الذكاء الاصطناعي حالياً";
+
+    for (const model of MODELS) {
+      try {
+        const payload = {
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 8192
+          }
+        };
+
+        if (systemInstruction) {
+          payload.systemInstruction = {
+            parts: [{ text: systemInstruction }]
+          };
         }
-        .loader {
-            display: none;
-            text-align: center;
-            padding: 1rem;
-            font-weight: bold;
-            color: var(--primary);
+
+        const response = await fetchWithTimeout(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          },
+          9000
+        );
+
+        const data = await response.json();
+
+        if (!response.ok || data.error) {
+          lastError = data?.error?.message || `HTTP ${response.status}`;
+          continue;
         }
-        footer {
-            text-align: center;
-            padding: 1.5rem;
-            color: #64748b;
-            font-size: 0.9rem;
+
+        const output = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (output) {
+          return {
+            statusCode: 200,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ output })
+          };
         }
-    </style>
-</head>
-<body>
+      } catch (err) {
+        lastError = err.name === "AbortError" ? "تم تقسيم الدفعة لضمان الاستقرار" : err.message;
+      }
+    }
 
-<header>
-    <button class="lang-btn" id="langToggle" onclick="toggleLanguage()">🌐 English</button>
-    <h1 id="headerTitle">🎓 الدمدم</h1>
-    <p id="headerSub">منصة مجانية 100% للطلاب — ترجمة الملازم، تلخيص المحاضرات، وصناعة التقارير</p>
-</header>
-
-<div class="container">
-    <div class="card">
-        <div class="tabs">
-            <button class="tab-btn active" id="tabTranslate" onclick="setMode('translate', this)">🌐 ترجمة ملزمة</button>
-            <button class="tab-btn" id="tabSummarize" onclick="setMode('summarize', this)">📝 تلخيص ذكي</button>
-            <button class="tab-btn" id="tabReport" onclick="setMode('report', this)">📄 إنشاء تقرير</button>
-        </div>
-
-        <label id="outLangLabel"><strong>🗣️ لغة النتيجة المطلوبة (Output Language):</strong></label>
-        <select id="outputLang">
-            <option value="ar">العربية (مع إبقاء المصطلحات العلمية بالإنجليزية)</option>
-            <option value="en">English (Academic English)</option>
-        </select>
-
-        <div id="pdf-section">
-            <div class="upload-box" onclick="document.getElementById('pdfInput').click()">
-                <span id="uploadText">📂 <strong>اضغط هنا لرفع ملزمة بصيغة PDF</strong> (أو الصق النص بالأسفل مباشرة)</span>
-                <input type="file" id="pdfInput" accept="application/pdf" style="display:none" onchange="extractPDF(event)">
-            </div>
-        </div>
-
-        <label id="input-label"><strong>النص أو محتوى الملزمة:</strong></label>
-        <textarea id="userInput" rows="7" placeholder="ارفع ملف PDF من الأعلى، أو الصق نص المحاضرة هنا..."></textarea>
-
-        <button class="action-btn" id="runBtn" onclick="processAI()">🚀 ابدأ المعالجة الآن</button>
-        <div class="loader" id="loader">⏳ جاري العمل على طلبك بواسطة ذكاء الدمدم... يرجى الانتظار</div>
-
-        <div id="result-wrapper" style="display:none;">
-            <div id="result-area"></div>
-            <button class="action-btn pdf-btn" id="pdfBtn" onclick="downloadPDF()">📥 تحميل النتيجة كملف PDF</button>
-        </div>
-    </div>
-</div>
-
-<footer id="footerText">
-    صُنع بحب لخدمة الطلاب مجاناً ❤️ | منصة الدمدم
-</footer>
-
-<script>
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    let currentMode = 'translate';
-    let uiLang = 'ar';
-
-    const translations = {
-        ar: {
-            toggleBtn: '🌐 English',
-            title: '🎓 الدمدم',
-            sub: 'منصة مجانية 100% للطلاب — ترجمة الملازم، تلخيص المحاضرات، وصناعة التقارير',
-            tabTranslate: '🌐 ترجمة ملزمة',
-            tabSummarize: '📝 تلخيص ذكي',
-            tabReport: '📄 إنشاء تقرير',
-            outLangLabel: '<strong>🗣️ لغة النتيجة المطلوبة:</strong>',
-            uploadText: '📂 <strong>اضغط هنا لرفع ملزمة بصيغة PDF</strong> (أو الصق النص بالأسفل مباشرة)',
-            runBtn: '🚀 ابدأ المعالجة الآن',
-            loader: '⏳ جاري العمل على طلبك بواسطة ذكاء الدمدم... يرجى الانتظار',
-            pdfBtn: '📥 تحميل النتيجة كملف PDF',
-            footer: 'صُنع بحب لخدمة الطلاب مجاناً ❤️ | منصة الدمدم',
-            labels: {
-                translate: '<strong>النص المراد ترجمته (أو ارفع PDF):</strong>',
-                summarize: '<strong>المادة المراد تلخيصها (أو ارفع PDF):</strong>',
-                report: '<strong>عنوان التقرير وتفاصيله (اسم التجربة، الهدف، أو رؤوس أقلام):</strong>'
-            },
-            placeholders: {
-                translate: 'الصق نص الملزمة هنا...',
-                summarize: 'الصق نص المحاضرة الطويل هنا لتلخيصه...',
-                report: 'مثال: اكتب تقريراً هندسياً متكاملاً عن التقطير التجزيئي للنفط الخام (Fractional Distillation)...'
-            }
-        },
-        en: {
-            toggleBtn: '🌐 عربي',
-            title: '🎓 Al-Damdam',
-            sub: '100% Free Student Platform — Lecture Translation, Smart Summarization & Academic Reports',
-            tabTranslate: '🌐 Translate Lecture',
-            tabSummarize: '📝 Smart Summary',
-            tabReport: '📄 Generate Report',
-            outLangLabel: '<strong>🗣️ Output Language:</strong>',
-            uploadText: '📂 <strong>Click here to upload a PDF lecture</strong> (or paste text below)',
-            runBtn: '🚀 Start Processing Now',
-            loader: '⏳ Al-Damdam AI is working on your request... Please wait',
-            pdfBtn: '📥 Download Result as PDF',
-            footer: 'Made with love to serve students for free ❤️ | Al-Damdam Platform',
-            labels: {
-                translate: '<strong>Text to Translate (or upload PDF):</strong>',
-                summarize: '<strong>Content to Summarize (or upload PDF):</strong>',
-                report: '<strong>Report Title & Details (Experiment name, objective, or outline):</strong>'
-            },
-            placeholders: {
-                translate: 'Paste your lecture text here...',
-                summarize: 'Paste long lecture notes here to summarize...',
-                report: 'Example: Write a comprehensive chemical engineering report on Fractional Distillation of Crude Oil...'
-            }
-        }
+    return {
+      statusCode: 503,
+      body: JSON.stringify({
+        error: `ضغط مؤقت على الخادم، أعد المحاولة (${lastError})`
+      })
     };
-
-    function toggleLanguage() {
-        uiLang = uiLang === 'ar' ? 'en' : 'ar';
-        const t = translations[uiLang];
-        const html = document.getElementById('htmlTag');
-        
-        html.setAttribute('lang', uiLang);
-        html.setAttribute('dir', uiLang === 'ar' ? 'rtl' : 'ltr');
-
-        document.getElementById('langToggle').innerText = t.toggleBtn;
-        document.getElementById('headerTitle').innerText = t.title;
-        document.getElementById('headerSub').innerText = t.sub;
-        document.getElementById('tabTranslate').innerText = t.tabTranslate;
-        document.getElementById('tabSummarize').innerText = t.tabSummarize;
-        document.getElementById('tabReport').innerText = t.tabReport;
-        document.getElementById('outLangLabel').innerHTML = t.outLangLabel;
-        document.getElementById('uploadText').innerHTML = t.uploadText;
-        document.getElementById('runBtn').innerText = t.runBtn;
-        document.getElementById('loader').innerText = t.loader;
-        document.getElementById('pdfBtn').innerText = t.pdfBtn;
-        document.getElementById('footerText').innerText = t.footer;
-
-        document.getElementById('outputLang').value = uiLang;
-        updateModeTexts();
-    }
-
-    function updateModeTexts() {
-        const t = translations[uiLang];
-        document.getElementById('input-label').innerHTML = t.labels[currentMode];
-        document.getElementById('userInput').placeholder = t.placeholders[currentMode];
-    }
-
-    function setMode(mode, btn) {
-        currentMode = mode;
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        document.getElementById('pdf-section').style.display = (mode === 'report') ? 'none' : 'block';
-        updateModeTexts();
-    }
-
-    async function extractPDF(event) {
-        const file = event.target.files[0];
-        if (!file) return;
-        document.getElementById('userInput').value = uiLang === 'ar' ? '⏳ جاري استخراج النص من ملف الـ PDF...' : '⏳ Extracting text from PDF...';
-        
-        const reader = new FileReader();
-        reader.onload = async function() {
-            const typedarray = new Uint8Array(this.result);
-            const pdf = await pdfjsLib.getDocument(typedarray).promise;
-            let fullText = '';
-            const maxPages = Math.min(pdf.numPages, 15);
-            for (let i = 1; i <= maxPages; i++) {
-                const page = await pdf.getPage(i);
-                const content = await page.getTextContent();
-                fullText += content.items.map(item => item.str).join(' ') + '\n\n';
-            }
-            document.getElementById('userInput').value = fullText;
-        };
-        reader.readAsArrayBuffer(file);
-    }
-
-    async function processAI() {
-        const text = document.getElementById('userInput').value.trim();
-        const outLang = document.getElementById('outputLang').value;
-
-        if (!text) { alert(uiLang === 'ar' ? 'يرجى إدخال النص أو رفع ملف PDF أولاً!' : 'Please enter text or upload a PDF first!'); return; }
-
-        let prompt = '';
-        if (outLang === 'ar') {
-            if (currentMode === 'translate') {
-                prompt = `أنت مترجم أكاديمي متخصص في الهندسة والعلوم. ترجم النص التالي إلى اللغة العربية الفصحى الواضحة للطلاب، مع الإبقاء على المصطلحات العلمية والهندسية باللغة الإنجليزية بين قوسين بجانب ترجمتها، والحفاظ على المعادلات والرموز كما هي:\n\n${text}`;
-            } else if (currentMode === 'summarize') {
-                prompt = `أنت أستاذ جامعي خبير. لخص النص التالي للطلاب باللغة العربية بطريقة منظمة جداً تشمل: (1. الفكرة الأساسية، 2. أهم التعاريف والمفاهيم مع إبقاء المصطلح الإنجليزي بين قوسين، 3. القوانين أو الخطوات المهمة، 4. أسئلة مراجعة سريعة):\n\n${text}`;
-            } else if (currentMode === 'report') {
-                prompt = `أنت باحث وطالب هندسة متفوق. اكتب تقريراً جامعياً أكاديمياً متكاملاً ومفصلاً باللغة العربية (مع المصطلحات الإنجليزية العلمية بين قوسين) حول الموضوع التالي، بحيث يشمل: العنوان، المقدمة، الجانب النظري ومبدأ العمل، التطبيقات أو خطوات العمل، المناقشة، والاستنتاجات:\n\n${text}`;
-            }
-        } else {
-            if (currentMode === 'translate') {
-                prompt = `You are an academic translator specializing in Engineering and Sciences. Translate the following text into clear, formal academic English while preserving all scientific equations, symbols, and technical accuracy:\n\n${text}`;
-            } else if (currentMode === 'summarize') {
-                prompt = `You are an expert university professor. Summarize the following lecture notes in clear academic English using structured sections: (1. Core Concept, 2. Key Definitions & Terminology, 3. Important Equations/Steps, 4. Quick Review Questions):\n\n${text}`;
-            } else if (currentMode === 'report') {
-                prompt = `You are a top engineering researcher. Write a comprehensive, well-structured academic university report in formal English on the following topic, including: Title, Abstract/Introduction, Theoretical Background & Working Principle, Applications/Methodology, Discussion, and Conclusion:\n\n${text}`;
-            }
-        }
-
-        document.getElementById('loader').style.display = 'block';
-        document.getElementById('runBtn').disabled = true;
-        document.getElementById('result-wrapper').style.display = 'none';
-
-        try {
-            const response = await fetch('/.netlify/functions/gemini', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt })
-            });
-            const data = await response.json();
-            if (!response.ok || data.error) throw new Error(data.error || 'Server error');
-
-            const resultBox = document.getElementById('result-area');
-            resultBox.innerText = data.output;
-            resultBox.style.direction = outLang === 'ar' ? 'rtl' : 'ltr';
-            resultBox.style.textAlign = outLang === 'ar' ? 'right' : 'left';
-            document.getElementById('result-wrapper').style.display = 'block';
-        } catch (err) {
-            alert((uiLang === 'ar' ? 'حدث خطأ: ' : 'Error: ') + err.message);
-        } finally {
-            document.getElementById('loader').style.display = 'none';
-            document.getElementById('runBtn').disabled = false;
-        }
-    }
-
-    function downloadPDF() {
-        const element = document.getElementById('result-area');
-        const opt = {
-            margin:       15,
-            filename:     'Aldamdam_Document.pdf',
-            image:        { type: 'jpeg', quality: 0.98 },
-            html2canvas:  { scale: 2 },
-            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        };
-        html2pdf().set(opt).from(element).save();
-    }
-</script>
-
-</body>
-</html>
+  } catch (err) {
+    return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
+  }
+}
