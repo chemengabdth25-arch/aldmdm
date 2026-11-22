@@ -1,10 +1,9 @@
 const MODELS = [
   "gemini-3.8-flash",
-  "gemini-2.5-flash",
-  "gemini-2.5-flash-lite"
+  "gemini-3.5-flash"
 ];
 
-async function fetchWithTimeout(url, options, timeoutMs = 8500) {
+async function fetchWithTimeout(url, options, timeoutMs = 8800) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -26,22 +25,22 @@ export async function handler(event) {
     if (!apiKey) {
       return {
         statusCode: 500,
-        body: JSON.stringify({ error: "مفتاح API غير مضبوط في إعدادات Netlify." })
+        body: JSON.stringify({ error: "مفتاح API غير مضبوط في Netlify." })
       };
     }
 
     if (!prompt || prompt.trim() === "") {
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: "النص فارغ، يرجى إدخال محتوى للمعالجة." })
+        body: JSON.stringify({ error: "يرجى إدخال نص أو رفع ملف PDF أولاً." })
       };
     }
 
     const requestBody = {
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 8192
+        temperature: 0.2,
+        maxOutputTokens: 16384
       }
     };
 
@@ -60,7 +59,7 @@ export async function handler(event) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(requestBody)
-        }, 8500);
+        }, 8800);
 
         const data = await response.json();
 
@@ -78,7 +77,7 @@ export async function handler(event) {
           };
         }
       } catch (err) {
-        lastError = err.name === "AbortError" ? "انتهت مهلة الاستجابة" : err.message;
+        lastError = err.name === "AbortError" ? "انتهت المهلة" : err.message;
       }
     }
 
@@ -86,7 +85,7 @@ export async function handler(event) {
       statusCode: 503,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        error: `توقف مؤقت: يرجى المحاولة بعد قليل. (${lastError})`
+        error: `تعذر الاتصال بالنماذج (${lastError})`
       })
     };
 
@@ -94,7 +93,7 @@ export async function handler(event) {
     return {
       statusCode: 500,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ error: "حدث خطأ داخلي: " + error.message })
+      body: JSON.stringify({ error: "خطأ داخلي: " + error.message })
     };
   }
 }
