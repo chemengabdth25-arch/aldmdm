@@ -37,15 +37,15 @@ async function waitForFileActive(fileName) {
   throw new Error("استغرقت تهيئة الملف وقتاً أطول من اللازم");
 }
 
-export async function handler(event) {
-  if (event.httpMethod !== "POST") return { statusCode: 405, body: "" };
+export default async (req) => {
+  if (req.method !== "POST") return new Response("", { status: 405 });
 
   let body;
-  try { body = JSON.parse(event.body || "{}"); }
-  catch { return { statusCode: 400, body: "" }; }
+  try { body = await req.json(); }
+  catch { return new Response("", { status: 400 }); }
 
   const { jobId, fileUri, fileName, mimeType = "application/pdf", text, mode = "summarize", lang = "ar" } = body;
-  if (!jobId) return { statusCode: 400, body: "" };
+  if (!jobId) return new Response("", { status: 400 });
 
   const store = getStore("aldmdm-jobs");
 
@@ -95,7 +95,7 @@ export async function handler(event) {
           const out = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("").trim();
           if (out) {
             await store.setJSON(jobId, { status: "done", result: out, model });
-            return { statusCode: 200, body: "" };
+            return new Response("", { status: 200 });
           }
         } else {
           lastError = data?.error?.message || `HTTP ${r.status}`;
@@ -108,6 +108,6 @@ export async function handler(event) {
     throw new Error(`تعذر الإتمام: ${lastError}`);
   } catch (err) {
     await store.setJSON(jobId, { status: "error", error: err.message || "حدث خطأ أثناء المعالجة" });
-    return { statusCode: 200, body: "" };
+    return new Response("", { status: 200 });
   }
-}
+};
